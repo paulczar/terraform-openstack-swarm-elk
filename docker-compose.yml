@@ -1,0 +1,71 @@
+version: "2"
+
+networks:
+  elk:
+    driver: overlay
+
+services:
+  kibana:
+    image: autopilotpattern/kibana:latest
+    mem_limit: 1g
+    restart: always
+    networks:
+      - elk
+    ports:
+      - "5601:5601" # default Kibana port
+    environment:
+      - affinity:container!=*kibana_*
+      - CONSUL=172.17.0.1
+      - CONFIG_PATH=/usr/share/kibana/config/kibana.yml
+      - NODE_ENV=production
+      - CONTAINERPILOT=file:///etc/containerpilot.json
+    command: >
+      /usr/local/bin/containerpilot
+      /usr/share/kibana/node/bin/node
+      /usr/share/kibana/src/cli
+
+  logstash:
+    image: autopilotpattern/logstash:latest
+    mem_limit: 1g
+    restart: always
+    networks:
+      - elk
+    ports:
+    - "514:514"       # syslog tcp port
+    - "514:514/udp"   # syslog udp port
+    environment:
+      - affinity:container!=*logstash_*
+      - CONSUL=172.17.0.1
+      - CONTAINERPILOT=file:///etc/containerpilot.json
+    command: >
+      /usr/local/bin/containerpilot
+      /opt/logstash/bin/logstash -f /etc/logstash/conf.d/logstash.conf
+
+  elasticsearch:
+    image: autopilotpattern/elasticsearch:latest
+    networks:
+      - elk
+    mem_limit: 4g
+    restart: always
+    environment:
+      - affinity:container!=*elasticsearch_*
+      - CONSUL=172.17.0.1
+      - ES_SERVICE_NAME=elasticsearch-master
+      - CLUSTER_NAME=elasticsearch
+      - ES_HEAP_SIZE=1g # set to 50% of mem_limit, but no more than 31g
+      - ES_NODE_MASTER=true # default
+      - ES_NODE_DATA=true   # default
+      - CONTAINERPILOT=file:///etc/containerpilot.json
+      - ES_JAVA_OPTS=-XX:-UseGCTaskAffinity -XX:-BindGCTaskThreadsToCPUs -XX:ParallelGCThreads=1 -XX:ParallelCMSThreads=1
+    command: >
+      /usr/local/bin/containerpilot
+      /usr/share/elasticsearch/bin/elasticsearch
+      --default.path.conf=/etc/elasticsearch
+
+  logspout:
+    image: gliderlabs/logspout
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    environment:
+      - affinity:container!=*logspout_*
+    command: syslog://172.17.0.1:514
